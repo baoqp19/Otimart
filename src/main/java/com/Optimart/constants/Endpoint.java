@@ -12,6 +12,7 @@ public class Endpoint {
         public static final String FORGOT_PASSWORD = "/forgot-password";
         public static final String RESET_PASSWORD = "/reset-password";
         public static final String REGISTER_FACEBOOK ="/register-facebook";
+        public static final String LOGOUT = "/logout";
         public static final String ME = "/me";
         public static final String REGISTER = "/register";
         public static final String REFRESH_TOKEN = "/refreshtoken";
@@ -77,6 +78,7 @@ public class Endpoint {
         public static final String CANCEL = "/me/cancel/{orderId}";
         public static final String ID_ME = "/me/{orderId}";
         public static final String ID = "/{orderId}";
+        public static final String STATUS_ID = "/status/{orderId}";
     }
 
     public static class Reivew{
@@ -108,5 +110,12 @@ public class Endpoint {
         public static final String ORDER_STATUS = "/order-status/count";
         public static final String ALL_RECORDS = "/all-records/count";
         public static final String REVENUE_TOTAL = "/revenue-total";
+    }
+
+    public static class Notification{
+        public static final String BASE = API_PREFIX + "/notifications";
+        public static final String MARK_READ = "/{notificationId}/read";
+        public static final String DELETE_NOTIFICATION = "/{notificationId}";
+        public static final String  MARK_READ_ALL_NOTIFICATION = "/all/read";
     }
 }

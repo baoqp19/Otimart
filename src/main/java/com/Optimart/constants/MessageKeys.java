@@ -8,11 +8,18 @@ public class MessageKeys {
     // **** Errors
     public static final String ERROR = "optimart.error";
 
+    // **** Refresh Token
+    public static final String REFRESH_TOKEN_NOT_FOUND = "refresh_token.not_found";
+    public static final String SIGN_IN_AGAIN = "sign_in_again";
+    public static final String CREATE_REFRESH_TOKEN_FAILED = "refresh_token.create_failed";
+    public static final String DELETE_REFRESH_TOKEN_SUCCESS = "refresh_token.delete_success";
+
     // **** Auth
     public static final String REGISTER_SUCCESSFULLY = "auth.register.register_successfully";
     public static final String REGISTER_FAILED = "auth.register.register_failed";
     public static final String LOGIN_SUCCESSFULLY = "auth.login.login_successfully";
     public static final String LOGIN_FAILED = "auth.login.login_failed";
+    public static final String LOGOUT_SUCCESS = "auth.logout.logout_success";
     public static final String USER_ALREADY_EXIST = "error.auth.register.user_already_exists";
     public static final String USER_NOT_EXIST = "error.auth.login.user_not_exists";
     public static final String WRONG_INPUT = "error.auth.login.wrong_email_or_password";
@@ -84,11 +91,15 @@ public class MessageKeys {
 
     // ORDER
     public static final String ORDER_CREATE_SUCCESS = "order.create_success";
+    public static final String ORDER_CREATE_SUCCESS_ID = "order_id.create_success";
     public static final String ORDER_GET_SUCCESS = "order.get_success";
     public static final String ORDER_LIST_GET_SUCCESS = "order_list.get_success";
     public static final String ORDER_CANCEL_SUCCESS = "order.cancel_success";
     public static final String ORDER_DELETE_SUCCESS = "order.delete_success";
     public static final String ORDER_NOT_FOUND = "order.not_found";
+    public static final String ORDER_CANCEL_SUCCESS_ID = "order_id.cancel_success";
+    public static final String ORDER_CHANGE_STATUS_SUCCESS = "order.change_status_success";
+    public static final String ORDER_CHANGE_STATUS_ID = "order_id.change_status_success";
 
     // REVIEW
     public static final String REVIEW_GET_SUCCESS = "review.get_success";
@@ -100,6 +111,7 @@ public class MessageKeys {
     // PAYMENT
     public static final String PAY_SUCCESS = "payment.success";
     public static final String PAY_FAILED = "payment.failed";
+    public static final String PAYMENT_SUCCESS_ID = "payment.pay_success";
 
     // COMMENT
     public static final String CREATE_COMMENT_SUCCESS = "comment.create_success";
@@ -112,4 +124,13 @@ public class MessageKeys {
     public static final String COMMENT_NOT_FOUND = "comment.not_found";
     public static final String GET_COMMENT_SUCCESS = "comment.get_success";
     public static final String REPLY_COMMENT_SUCCESS = "comment.reply_success";
+
+    // NOTIFICATION
+    public static final String NOTIFICATION_GET_LIST_SUCCESS = "notification.get_list_success";
+    public static final String NOTIFICATION_NOT_FOUND = "notification.not_found";
+    public static final String NOTIFICATION_READ = "notification.read";
+    public static final String NOTIFICATION_GET_LIST_FAILED = "notification.get_list_failed";
+    public static final String NOTIFICATION_DELETE_SUCCESS = "notification.delete_success";
+    public static final String NOTIFICATION_DELETE_FAILED = "notification.delete_failed";
+    public static final String NOTIFICATION_READ_ALL = "notification.read_all_success";
 }

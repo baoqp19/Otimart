@@ -13,10 +13,12 @@ import com.Optimart.responses.Product.BaseProductResponse;
 import com.Optimart.responses.Product.ProductResponse;
 import com.Optimart.responses.Review.ReviewResponse;
 import com.Optimart.responses.User.BaseUserResponse;
-import com.Optimart.services.CloudinaryService;
+import com.Optimart.services.Cloudinary.CloudinaryService;
+import com.Optimart.services.Redis.Product.ProductRedisService;
 import com.Optimart.utils.FileUploadUtil;
 import com.Optimart.utils.JwtTokenUtil;
 import com.Optimart.utils.LocalizationUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.jetbrains.annotations.NotNull;
@@ -38,6 +40,7 @@ import java.util.stream.Collectors;
 public class ProductService implements IProductService {
     private final LocalizationUtils localizationUtils;
     private final CloudinaryService cloudinaryService;
+    private final ProductRedisService productRedisService;
     private final ModelMapper modelMapper;
     private final JwtTokenUtil jwtTokenUtil;
     private final UserRepository userRepository;
@@ -46,16 +49,21 @@ public class ProductService implements IProductService {
     private final ProductTypeRepository productTypeRepository;
     private final AuthRepository authRepository;
     @Override
+    @Transactional
     public APIResponse<Product> createProduct(CreateProductDTO createProductDTO) {
         Product product = modelMapper.map(createProductDTO, Product.class);
+        City city = cityLocaleRepository.findById(Long.parseLong(createProductDTO.getLocation()))
+                .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.CITY_NOT_FOUND)));
         ProductType productType = productTypeRepository.findById(UUID.fromString(createProductDTO.getType()))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_TYPE_NOT_FOUND)));
         product.setProductType(productType);
+        product.setCity(city);
         productRepository.save(product);
         return new APIResponse<>(product, localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_CREATE_SUCCESS));
     }
 
     @Override
+    @Transactional
     public APIResponse<Boolean> likeProduct(ReactionProductDTO reactionProductDTO, String token) {
         User user = getUser(token);
         String productId = reactionProductDTO.getProductId();
@@ -87,6 +95,7 @@ public class ProductService implements IProductService {
     }
 
     @Override
+    @Transactional
     public APIResponse<Boolean> unlikeProduct(ReactionProductDTO reactionProductDTO, String token) {
         User user = getUser(token);
 
@@ -107,8 +116,7 @@ public class ProductService implements IProductService {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public PagingResponse<List<ProductResponse>> findAllProduct(Map<Object, String> filters) {
+    public PagingResponse<List<ProductResponse>> findAllProduct(Map<Object, String> filters) throws JsonProcessingException {
         List<Product> productList;
         Pageable pageable;
         int page = Integer.parseInt(filters.getOrDefault("page", "-1"));
@@ -119,6 +127,7 @@ public class ProductService implements IProductService {
             List<ProductResponse> productResponseList = productList.stream()
                     .map(product -> modelMapper.map(product, ProductResponse.class))
                     .toList();
+            productRedisService.saveAllProducts(productResponseList, filters);
             return new PagingResponse<>(productResponseList, localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_GET_SUCCESS), 1, (long) productList.size());
         }
         page = Math.max(Integer.parseInt(filters.getOrDefault("page", "-1")), 1) - 1;
@@ -215,7 +224,7 @@ public class ProductService implements IProductService {
         page = Math.max(Integer.parseInt(filters.getOrDefault("page", "-1")), 1) - 1;
         pageable = PageRequest.of(page, limit, Sort.by("createdAt").descending());
         pageable = getPageable(pageable, page, limit, order);
-        Specification<Product> specification = ProductSpecification.filterProducts(type.getName(), "1", filters.get("search"), null , null);
+        Specification<Product> specification = ProductSpecification.filterProducts(type.getId().toString(), "1", filters.get("search"), null , null);
         return getListPagingResponse(pageable, specification);
     }
 
@@ -240,6 +249,7 @@ public class ProductService implements IProductService {
     }
 
     @Override
+    @Transactional
     public APIResponse<Product> updateProduct(ProductDTO product, String productId) {
         Product product1 = productRepository.findById(UUID.fromString(productId))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_NOT_EXISTED)));
@@ -256,12 +266,14 @@ public class ProductService implements IProductService {
     }
 
     @Override
+    @Transactional
     public APIResponse<Boolean> deleteProduct(String productId) {
         productRepository.deleteById(UUID.fromString(productId));
         return new APIResponse<>(true, localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_DELETE_SUCCESS));
     }
 
     @Override
+    @Transactional
     public APIResponse<Boolean> deleteMultiProduct(ProductMultiDeleteDTO productMultiDeleteDTO) {
         List<String> productListIds = productMultiDeleteDTO.getProductIds();
         productListIds.forEach(item -> {
@@ -277,12 +289,23 @@ public class ProductService implements IProductService {
     }
 
     @Override
-    public ProductResponse getOneProductBySlug(String slug) {
+    public ProductResponse getOneProductBySlug(String slug,  Map<String, String> params) {
+        Boolean isViewed = Boolean.valueOf(params.get("isViewed"));
+        String userId = params.get("userId");
         Product product = productRepository.findBySlug(slug)
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_NOT_EXISTED)));
         List<ReviewResponse> responses = product.getReviewList().stream().map(
                 this::ConvertToResponse
         ).toList();
+        if(isViewed) product.setViews(product.getViews()+1);
+        if(userId != null){
+            User user = userRepository.findById(UUID.fromString(userId))
+                    .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.USER_NOT_EXIST)));
+            user.getViewedProductList().add(product);
+            userRepository.save(user);
+            product.getUserViewedList().add(user);
+            productRepository.save(product);
+        }
         ProductResponse productResponse = modelMapper.map(product, ProductResponse.class);
         productResponse.setReviewList(responses);
         return productResponse;
@@ -298,7 +321,6 @@ public class ProductService implements IProductService {
     public Product getOneProductPublic(String productId, Boolean isViewed) {
         Product product = productRepository.findById(UUID.fromString(productId))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.PRODUCT_NOT_EXISTED)));;
-//        if(isViewed)
         return product;
     }
 

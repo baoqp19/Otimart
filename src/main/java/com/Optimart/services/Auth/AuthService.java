@@ -11,15 +11,12 @@ import com.Optimart.models.City;
 import com.Optimart.models.Role;
 import com.Optimart.models.User;
 import com.Optimart.models.userShippingAddress;
-import com.Optimart.repositories.CityLocaleRepository;
-import com.Optimart.repositories.RoleRepository;
-import com.Optimart.repositories.AuthRepository;
-import com.Optimart.repositories.UserShippingAddressRepository;
+import com.Optimart.repositories.*;
 import com.Optimart.responses.Auth.UserLoginResponse;
 import com.Optimart.responses.CloudinaryResponse;
 import com.Optimart.responses.OAuth2.FacebookUserInfoResponse;
 import com.Optimart.responses.OAuth2.GoogleUserInfoResponse;
-import com.Optimart.services.CloudinaryService;
+import com.Optimart.services.Cloudinary.CloudinaryService;
 import com.Optimart.services.OAuth2.FacebookService;
 import com.Optimart.services.OAuth2.GoogleService;
 import com.Optimart.utils.FileUploadUtil;
@@ -46,6 +43,7 @@ import java.util.stream.Collectors;
 public class AuthService implements IAuthService {
 
     private final AuthRepository authRepository;
+    private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
@@ -85,6 +83,7 @@ public class AuthService implements IAuthService {
     }
 
     @Override
+    @Transactional
     public String login(String email, String password) throws Exception {
         Optional<User> user = authRepository.findByEmail(email);
         if(user.isEmpty()){
@@ -106,9 +105,13 @@ public class AuthService implements IAuthService {
     }
 
     @Override
-    public User getUserInfo(String email) throws Exception {
-        return authRepository.findByEmail(email)
+    @Transactional
+    public User saveDeviceToken(String email, String deviceToken) {
+        User user = authRepository.findByEmail(email)
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.USER_NOT_EXIST)));
+        user.setDeviceToken(deviceToken);
+        userRepository.save(user);
+        return user;
     }
 
     @Override
@@ -116,7 +119,8 @@ public class AuthService implements IAuthService {
     public String changeUserPassword(ChangePassword changePassword, String token) throws Exception {
         String jwtToken = token.substring(7);
         String email = jwtTokenUtil.extractEmail(jwtToken);
-        User user = this.getUserInfo(email);
+        User user = authRepository.findByEmail(email)
+                .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.USER_NOT_EXIST)));
         String currentPassword = changePassword.getCurrentPassword();
         String newPassword = changePassword.getNewPassword();
         if(currentPassword.equals(newPassword)) throw new InvalidInput(localizationUtils.getLocalizedMessage(MessageKeys.DIFFERENT_PASSWORD));
@@ -128,13 +132,16 @@ public class AuthService implements IAuthService {
     }
 
     @Override
+    @Transactional
     public UserLoginResponse changeUserInfo(ChangeUserInfo changeUserInfo) {
         User user = authRepository.findByEmail(changeUserInfo.getEmail())
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.USER_NOT_EXIST)));
         mapper.map(changeUserInfo, user);
-        City city1 = cityLocaleRepository.findById(Long.parseLong(changeUserInfo.getCityId()))
-                .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.CITY_NOT_FOUND)));
-        user.setCity(city1);
+        if (changeUserInfo.getCityId() != null && !changeUserInfo.getCityId().isEmpty()){
+            City city1 = cityLocaleRepository.findById(Long.parseLong(changeUserInfo.getCityId()))
+                    .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.CITY_NOT_FOUND)));
+            user.setCity(city1);
+        }
         if(changeUserInfo.getCity() != null){
             user.setCity(changeUserInfo.getCity());
         }
@@ -163,6 +170,7 @@ public class AuthService implements IAuthService {
     }
 
     @Override
+    @Transactional
     public User registerGoogle(String token) {
         GoogleUserInfoResponse googleUserInfoResponse = googleService.getUserInfo(token);
         String email = googleUserInfoResponse.getEmail();
@@ -187,7 +195,8 @@ public class AuthService implements IAuthService {
 
 
     @Override
-    public String loginGoogle(String token) throws Exception {
+    @Transactional
+    public String loginGoogle(String token, String deviceToken) throws Exception {
         GoogleUserInfoResponse googleUserInfoResponse = googleService.getUserInfo(token);
         Optional<User> optionalUser = authRepository.findByGoogleAccountId(googleUserInfoResponse.getSub());
         if(optionalUser.isEmpty()){
@@ -198,6 +207,7 @@ public class AuthService implements IAuthService {
                     .email(googleUserInfoResponse.getEmail())
                     .googleAccountId(googleUserInfoResponse.getSub())
                     .status(1)
+                    .deviceToken(deviceToken)
                     .userType(1) // 1: Google, 2: Facebook, 3: email
                     .fullName(googleUserInfoResponse.getName())
                     .userName(googleUserInfoResponse.getName())
@@ -208,11 +218,14 @@ public class AuthService implements IAuthService {
         }
         else {
             User user = optionalUser.get();
+            user.setDeviceToken(deviceToken);
+            userRepository.save(user);
             return jwtTokenUtil.generateToken(user);
         }
     }
 
     @Override
+    @Transactional
     public User registerFacebook(String token) {
         FacebookUserInfoResponse facebookUserInfoResponse = facebookService.getUserProfile(token);
         Optional<User> optionalUser = authRepository.findByEmail(facebookUserInfoResponse.getEmail());
@@ -234,7 +247,8 @@ public class AuthService implements IAuthService {
     }
 
     @Override
-    public String loginFacebook(String token) throws Exception {
+    @Transactional
+    public String loginFacebook(String token, String deviceToken) throws Exception {
         FacebookUserInfoResponse facebookUserInfoResponse = facebookService.getUserProfile(token);
         Optional<User> optionalUser = authRepository.findByFacebookAccountId(facebookUserInfoResponse.getId());
         if(optionalUser.isEmpty()){
@@ -245,6 +259,7 @@ public class AuthService implements IAuthService {
                     .email(facebookUserInfoResponse.getEmail())
                     .facebookAccountId(facebookUserInfoResponse.getId())
                     .status(1)
+                    .deviceToken(deviceToken)
                     .userType(2) // 1: Google, 2: Facebook, 3: email
                     .fullName(facebookUserInfoResponse.getFirst_name()+facebookUserInfoResponse.getLast_name())
                     .userName(facebookUserInfoResponse.getFirst_name()+facebookUserInfoResponse.getLast_name())
@@ -255,10 +270,14 @@ public class AuthService implements IAuthService {
         }
         else {
             User user = optionalUser.get();
+            user.setDeviceToken(deviceToken);
+            userRepository.save(user);
             return jwtTokenUtil.generateToken(user);
         }
     }
 
+
+    @Transactional
      public String resetPassword(ResetPasswordDTO resetPasswordDTO){
         User user = authRepository.findByResetToken(resetPasswordDTO.getSecretKey())
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.USER_NOT_EXIST)));

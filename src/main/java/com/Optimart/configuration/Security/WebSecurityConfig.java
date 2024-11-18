@@ -1,6 +1,9 @@
     package com.Optimart.configuration.Security;
 
     import com.Optimart.filters.JwtTokenFilter;
+    import com.Optimart.services.RefreshToken.RefreshTokenService;
+    import com.Optimart.utils.LocalizationUtils;
+    import jakarta.servlet.http.HttpServletResponse;
     import lombok.RequiredArgsConstructor;
     import org.springframework.beans.factory.annotation.Value;
     import org.springframework.context.annotation.Bean;
@@ -29,6 +32,8 @@
     @RequiredArgsConstructor
     public class WebSecurityConfig {
         private final JwtTokenFilter jwtTokenFilter;
+        private final RefreshTokenService refreshTokenService;
+        private final LocalizationUtils localizationUtils;
         @Value("${api.prefix}")
         private String apiPrefix;
         @Bean
@@ -56,7 +61,6 @@
                                         String.format("%s/auth/login", apiPrefix),
                                         String.format("%s/auth/refreshtoken", apiPrefix),
                                         String.format("%s/auth/me", apiPrefix),
-                                        String.format("%s/auth/logout", apiPrefix),
                                         String.format("%s/auth/avatar", apiPrefix),
                                         String.format("%s/auth/change-password", apiPrefix),
                                         String.format("%s/auth/update-info", apiPrefix),
@@ -72,6 +76,15 @@
                                 .anyRequest().authenticated();
                         //.anyRequest().permitAll();
                     });
+            http
+                    .logout(logout -> logout
+                            .logoutUrl(String.format("%s/auth/logout", apiPrefix))
+                            .invalidateHttpSession(true)
+                            .clearAuthentication(true)
+                            .permitAll()
+                            .logoutSuccessHandler(new CustomLogoutSuccessHandler(localizationUtils, refreshTokenService))
+                    );
+
             http.cors(new Customizer<CorsConfigurer<HttpSecurity>>() {
                 @Override
                 public void customize(CorsConfigurer<HttpSecurity> httpSecurityCorsConfigurer) {

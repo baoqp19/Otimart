@@ -1,6 +1,9 @@
 package com.Optimart.services.Order;
 
+import com.Optimart.constants.Context;
 import com.Optimart.constants.MessageKeys;
+import com.Optimart.dto.FirebaseCloud.Note;
+import com.Optimart.dto.Order.ChangeOrderStatus;
 import com.Optimart.dto.Order.CreateOrderDTO;
 import com.Optimart.exceptions.DataNotFoundException;
 import com.Optimart.models.*;
@@ -9,10 +12,16 @@ import com.Optimart.repositories.Specification.OrderSpecification;
 import com.Optimart.responses.APIResponse;
 import com.Optimart.responses.Order.OrderResponse;
 import com.Optimart.responses.PagingResponse;
+import com.Optimart.services.Firebase.FirebaseMessagingService;
 import com.Optimart.utils.JwtTokenUtil;
 import com.Optimart.utils.LocalizationUtils;
+import com.google.firebase.FirebaseException;
+import com.google.firebase.messaging.FirebaseMessagingException;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +36,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService implements IOrderService{
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
     private final ModelMapper modelMapper;
     private final OrderRepository orderRepository;
     private final PaymentTypeRepository paymentTypeRepository;
@@ -35,9 +45,12 @@ public class OrderService implements IOrderService{
     private final AuthRepository authRepository;
     private final ShippingAddressRepository shippingAddressRepository;
     private final ProductRepository productRepository;
+    private final NotificationRepository notificationRepository;
     private final JwtTokenUtil jwtTokenUtil;
     private final LocalizationUtils localizationUtils;
+    private final FirebaseMessagingService firebaseMessagingService;
     @Override
+    @Transactional
     public APIResponse<OrderResponse> createOrder(CreateOrderDTO createOrderDTO) {
         Order order = modelMapper.map(createOrderDTO, Order.class);
         User user = userRepository.findById(UUID.fromString(createOrderDTO.getUserId()))
@@ -70,10 +83,23 @@ public class OrderService implements IOrderService{
         List<Order> orders = user.getOrderList();
         orders.add(order);
         user.setOrderList(orders);
+        Notification notification = Notification.builder()
+                .context(Context.ORDER)
+                .body(String.format("Đơn hàng với id %s đã được tạo thành công", order.getId().toString()))
+                .users(Collections.singletonList(user))
+                .referenceId(order.getId().toString())
+                .title("Đã tạo đơn hàng")
+                .build();
+
+        user.getNotifications().add(notification);
         userRepository.save(user);
+        try{
+            firebaseMessagingService.sendNotification(new Note(Context.ORDER, localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CREATE_SUCCESS), localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CREATE_SUCCESS_ID, order.getId().toString())), user.getDeviceToken());
+        } catch (FirebaseMessagingException e) {
+            logger.error(e.getMessage());
+        }
         return new APIResponse<>(new OrderResponse(order.getId()), localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CREATE_SUCCESS));
     }
-
 
 
     @Override
@@ -124,11 +150,27 @@ public class OrderService implements IOrderService{
     }
 
     @Override
-    public APIResponse<OrderResponse> cancelOrder(String id) {
+    @Transactional
+    public APIResponse<OrderResponse> cancelOrder(String id) throws FirebaseMessagingException {
         Order order = orderRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.ORDER_NOT_FOUND)));
         order.setOrderStatus(3);
         orderRepository.save(order);
+        User user = order.getUser();
+        Notification notification = Notification.builder()
+                .context(Context.ORDER)
+                .body(String.format("Đơn hàng với id %s đã được hủy thành công", order.getId().toString()))
+                .users(Collections.singletonList(user))
+                .referenceId(order.getId().toString())
+                .title("Hủy đơn hàng thành công")
+                .build();
+
+        user.getNotifications().add(notification);
+        userRepository.save(user);
+
+        firebaseMessagingService.sendNotification(new Note(Context.ORDER, localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CANCEL_SUCCESS),
+                localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CANCEL_SUCCESS_ID, order.getId().toString())),
+                user.getDeviceToken());
         return new APIResponse<>(new OrderResponse(order.getId()), localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CANCEL_SUCCESS));
     }
 
@@ -139,7 +181,8 @@ public class OrderService implements IOrderService{
         return new APIResponse<>(order, MessageKeys.ORDER_GET_SUCCESS);
     }
 
-    public void handlePaymentOrderById(String orderId){
+    @Transactional
+    public void handlePaymentOrderById(String orderId) throws FirebaseMessagingException {
         Order order = orderRepository.findById(UUID.fromString(orderId))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.ORDER_NOT_FOUND)));
         order.getOrderItemList().forEach(orderItem -> {
@@ -155,14 +198,61 @@ public class OrderService implements IOrderService{
         order.setIsDelivered(1);
         order.setDeliveryAt(new Date());
         orderRepository.save(order);
+
+        // Push Noti
+        User user = order.getUser();
+        Notification notification = Notification.builder()
+                .context(Context.ORDER)
+                .body(String.format("Đơn hàng với id %s đã được thanh toán thành công", order.getId().toString()))
+                .users(Collections.singletonList(user))
+                .referenceId(order.getId().toString())
+                .title("Thanh toán thành công")
+                .build();
+
+        user.getNotifications().add(notification);
+        userRepository.save(user);
+
+        firebaseMessagingService.sendNotification(new Note(Context.PAYMENT_VN_PAY, localizationUtils.getLocalizedMessage(MessageKeys.PAY_SUCCESS),
+                        localizationUtils.getLocalizedMessage(MessageKeys.PAYMENT_SUCCESS_ID, order.getId().toString())), user.getDeviceToken());
     }
 
     @Override
+    @Transactional
     public APIResponse<Boolean> deleteOrder(String id) {
         Order order = orderRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.ORDER_NOT_FOUND)));
         orderRepository.delete(order);
         return new APIResponse<>(true, localizationUtils.getLocalizedMessage(MessageKeys.ORDER_DELETE_SUCCESS));
+    }
+
+    @Override
+    @Transactional
+    public APIResponse<OrderResponse> changeStatusOrder(String orderId, ChangeOrderStatus changeOrderStatus) throws FirebaseMessagingException {
+        Order order = orderRepository.findById(UUID.fromString(orderId))
+                .orElseThrow(() -> new DataNotFoundException(localizationUtils.getLocalizedMessage(MessageKeys.ORDER_NOT_FOUND)));
+        order.setIsDelivered(changeOrderStatus.getIsDelivered());
+        order.setIsPaid(changeOrderStatus.getIsPaid());
+        order.setOrderStatus(changeOrderStatus.getStatus());
+        orderRepository.save(order);
+
+        User user = order.getUser();
+        Notification notification = Notification.builder()
+                .context(Context.ORDER)
+                .body(String.format("Đơn hàng với id %s đã được cập nhật trạng thái, click để xem chi tiết", order.getId().toString()))
+                .users(Collections.singletonList(user))
+                .referenceId(order.getId().toString())
+                .title("Cập nhận đơn hàng")
+                .build();
+
+        user.getNotifications().add(notification);
+        userRepository.save(user);
+        List<Notification> notifications = user.getNotifications();
+        notificationRepository.saveAll(notifications);
+
+        firebaseMessagingService.sendNotification(new Note(Context.PAYMENT_VN_PAY, localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CHANGE_STATUS_SUCCESS),
+                localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CHANGE_STATUS_ID, order.getId().toString())), user.getDeviceToken());
+
+        return new APIResponse<>(new OrderResponse(order.getId()), localizationUtils.getLocalizedMessage(MessageKeys.ORDER_CHANGE_STATUS_SUCCESS));
     }
 
     private User getUser(String token){
